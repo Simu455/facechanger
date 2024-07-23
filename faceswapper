@@ -1,0 +1,63 @@
+import cv2
+import dlib
+import numpy as np
+
+# Load Dlib's face detector and shape predictor
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+# Load source image to swap faces with
+src_image = cv2.imread('source_face.jpg')
+src_gray = cv2.cvtColor(src_image, cv2.COLOR_BGR2GRAY)
+src_faces = detector(src_gray)
+
+# Extract landmarks from the source face
+src_landmarks = predictor(src_gray, src_faces[0])
+src_points = np.array([[p.x, p.y] for p in src_landmarks.parts()])
+
+# Convex hull for the source face
+src_hull = cv2.convexHull(src_points)
+
+# Open video file
+video = cv2.VideoCapture('input_video.mp4')
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+out = cv2.VideoWriter('output_video.avi', fourcc, 20.0, (int(video.get(3)), int(video.get(4))))
+
+while video.isOpened():
+    ret, frame = video.read()
+    if not ret:
+        break
+
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = detector(gray_frame)
+
+    for face in faces:
+        landmarks = predictor(gray_frame, face)
+        dst_points = np.array([[p.x, p.y] for p in landmarks.parts()])
+
+        # Calculate transformation matrix
+        H, _ = cv2.findHomography(src_points, dst_points)
+        
+        # Warp source image to fit the destination face
+        warped_src = cv2.warpPerspective(src_image, H, (frame.shape[1], frame.shape[0]))
+        warped_gray = cv2.cvtColor(warped_src, cv2.COLOR_BGR2GRAY)
+
+        # Create mask for the warped source face
+        mask = np.zeros_like(warped_gray)
+        cv2.fillConvexPoly(mask, cv2.convexHull(dst_points), 255)
+
+        # Blend the faces
+        mask_inv = cv2.bitwise_not(mask)
+        frame_bg = cv2.bitwise_and(frame, frame, mask=mask_inv)
+        face_fg = cv2.bitwise_and(warped_src, warped_src, mask=mask)
+        
+        result = cv2.add(frame_bg, face_fg)
+
+        out.write(result)
+        cv2.imshow('Face Swap', result)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+video.release()
+out.release()
+cv2.destroyAllWindows()
